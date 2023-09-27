@@ -48,6 +48,8 @@ from injector import (
     ClassAssistedBuilder,
     Error,
     UnknownArgument,
+    OverrideBinding,
+    DuplicateImplementation,
 )
 
 
@@ -698,6 +700,27 @@ def test_regular_bind_and_provider_dont_work_with_multibind():
     with pytest.raises(Error):
         binder.bind(Passwords, to={})
 
+
+##
+def test_duplicate_binding_raises_exeption():
+    """Raises an OverrideBinding when a duplicate binding is attempted."""
+    def configure(binder) -> None:
+        binder.bind(int, 1)
+        binder.bind(int, 2)
+    with pytest.raises(OverrideBinding):
+        injector = Injector(configure)
+        injector.get(int)
+
+def test_duplicate_multibind_implementation_raises_exeption():
+    """It raises an InjectorException when a duplicate implementation is attempted."""
+    def configure(binder) -> None:
+       binder.multibind(int, 1)
+       binder.multibind(int, 1)
+
+    with pytest.raises(DuplicateImplementation):
+        injector = Injector(configure)
+        injector.get(int)
+##
 
 def test_auto_bind():
     class A:

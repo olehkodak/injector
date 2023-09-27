@@ -74,7 +74,6 @@ T = TypeVar('T')
 K = TypeVar('K')
 V = TypeVar('V')
 
-
 def private(something: T) -> T:
     something.__private__ = True  # type: ignore
     return something
@@ -244,10 +243,41 @@ class UnknownArgument(Error):
     """Tried to mark an unknown argument as noninjectable."""
 
 
+class OverrideBinding(Error):
+    """Tried to override an existing binding."""
+
+    def __init__(self, interface: type) -> None:
+        super().__init__(interface)
+        self.interface = interface
+
+    def __str__(self) -> str:
+        return 'Duplicate binding, key=%s' % (self.interface,)
+
+
+class DuplicateImplementation(Error):
+    """Tried to multibind an implementation to an interface that already has that implementation."""
+
+    def __init__(self, implementation: type) -> None:
+        super().__init__(implementation)
+        self.implementation = implementation
+
+    def __str__(self) -> str:
+        return 'Duplicate multibind implementation, value=%s' % (self.implementation)
+
+
+TBT = Union[type[T], Callable[..., T], T]
+
+
 class Provider(Generic[T]):
     """Provides class instances."""
 
     __metaclass__ = ABCMeta
+
+    @property
+    @abstractmethod
+    def to_bind_to(self) -> Union[TBT, list[TBT]]:
+        """Get the implementation to bind to."""
+        raise NotImplementedError
 
     @abstractmethod
     def get(self, injector: 'Injector') -> T:
@@ -257,8 +287,12 @@ class Provider(Generic[T]):
 class ClassProvider(Provider, Generic[T]):
     """Provides instances from a given class, created using an Injector."""
 
-    def __init__(self, cls: Type[T]) -> None:
+    def __init__(self, cls: type[T]) -> None:
         self._cls = cls
+
+    @property
+    def to_bind_to(self) -> type[T]:
+        return self._cls
 
     def get(self, injector: 'Injector') -> T:
         return injector.create_object(self._cls)
@@ -298,11 +332,15 @@ class CallableProvider(Provider, Generic[T]):
     def __init__(self, callable: Callable[..., T]):
         self._callable = callable
 
-    def get(self, injector: 'Injector') -> T:
-        return injector.call_with_injection(self._callable)
-
     def __repr__(self) -> str:
         return '%s(%r)' % (type(self).__name__, self._callable)
+
+    @property
+    def to_bind_to(self) -> Callable[..., T]:
+        return self._callable
+
+    def get(self, injector: 'Injector') -> T:
+        return injector.call_with_injection(self._callable)
 
 
 class InstanceProvider(Provider, Generic[T]):
@@ -327,11 +365,15 @@ class InstanceProvider(Provider, Generic[T]):
     def __init__(self, instance: T) -> None:
         self._instance = instance
 
-    def get(self, injector: 'Injector') -> T:
-        return self._instance
-
     def __repr__(self) -> str:
         return '%s(%r)' % (type(self).__name__, self._instance)
+
+    @property
+    def to_bind_to(self) -> T:
+        return self._instance
+
+    def get(self, injector: 'Injector') -> T:
+        return self._instance
 
 
 @private
@@ -339,15 +381,22 @@ class ListOfProviders(Provider, Generic[T]):
     """Provide a list of instances via other Providers."""
 
     _providers: List[Provider[T]]
+    _implementations: list[TBT]
 
     def __init__(self) -> None:
         self._providers = []
+        self._implementations = []
+
+    def __repr__(self) -> str:
+        return '%s(%r)' % (type(self).__name__, self._providers, self._implementations)
+
+    @property
+    def to_bind_to(self) -> list[TBT]:
+        return self._implementations
 
     def append(self, provider: Provider[T]) -> None:
         self._providers.append(provider)
-
-    def __repr__(self) -> str:
-        return '%s(%r)' % (type(self).__name__, self._providers)
+        self._implementations.append(provider.to_bind_to)
 
 
 class MultiBindProvider(ListOfProviders[List[T]]):
@@ -462,6 +511,7 @@ class Binder:
             raise Error(
                 'Type %s is reserved for multibindings. Use multibind instead of bind.' % (interface,)
             )
+        self._check_interface(interface)
         self._bindings[interface] = self.create_binding(interface, to, scope)
 
     @overload
@@ -524,7 +574,18 @@ class Binder:
             binding = self._bindings[interface]
             provider = binding.provider
             assert isinstance(provider, ListOfProviders)
+            self._check_implementation_to_bind_to(provider, to)
         provider.append(self.provider_for(interface, to))
+
+    def _check_interface(self, interface: type[T]) -> None:
+        """Check if the interface is already bound."""
+        if interface in self._bindings:
+            raise OverrideBinding(interface)
+
+    def _check_implementation_to_bind_to(self, provider: ListOfProviders, to: Any) -> None:
+        """Check if the implementation is already bounded in ListProvider."""
+        if to in provider.to_bind_to:
+            raise DuplicateImplementation(to)
 
     def install(self, module: _InstallableModuleType) -> None:
         """Install a module into this binder.
