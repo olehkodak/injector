@@ -388,7 +388,7 @@ class ListOfProviders(Provider, Generic[T]):
         self._implementations = []
 
     def __repr__(self) -> str:
-        return '%s(%r)' % (type(self).__name__, self._providers, self._implementations)
+        return '%s(%r)(%r)' % (type(self).__name__, self._providers, self._implementations)
 
     @property
     def to_bind_to(self) -> list[TBT]:
