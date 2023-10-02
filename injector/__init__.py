@@ -257,7 +257,7 @@ class OverrideBinding(Error):
 class DuplicateImplementation(Error):
     """Tried to multibind an implementation to an interface that already has that implementation."""
 
-    def __init__(self, implementation: type) -> None:
+    def __init__(self, implementation: Any) -> None:
         super().__init__(implementation)
         self.implementation = implementation
 
@@ -557,6 +557,7 @@ class Binder:
                 subclass. Must provide a list or a dictionary, depending on the interface.
         :param scope: Optional Scope in which to bind.
         """
+        # import pdb; pdb.set_trace()
         if interface not in self._bindings:
             provider: ListOfProviders
             if (
@@ -574,7 +575,7 @@ class Binder:
             binding = self._bindings[interface]
             provider = binding.provider
             assert isinstance(provider, ListOfProviders)
-            self._check_implementation_to_bind_to(provider, to)
+            self._check_implementation_to_bind_to(provider, self.provider_for(interface, to))
         provider.append(self.provider_for(interface, to))
 
     def _check_interface(self, interface: type[T]) -> None:
@@ -582,8 +583,9 @@ class Binder:
         if interface in self._bindings:
             raise OverrideBinding(interface)
 
-    def _check_implementation_to_bind_to(self, provider: ListOfProviders, to: Any) -> None:
+    def _check_implementation_to_bind_to(self, provider: ListOfProviders, provider_for: Provider) -> None:
         """Check if the implementation is already bounded in ListProvider."""
+        to = provider_for.to_bind_to
         if to in provider.to_bind_to:
             raise DuplicateImplementation(to)
 

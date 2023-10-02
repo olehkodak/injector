@@ -712,7 +712,7 @@ def test_duplicate_binding_raises_exeption():
         injector.get(int)
 
 def test_duplicate_multibind_implementation_raises_exeption():
-    """It raises an InjectorException when a duplicate implementation is attempted."""
+    """It raises an DuplicateImplementation when a duplicate implementation is attempted."""
     def configure(binder) -> None:
        binder.multibind(int, 1)
        binder.multibind(int, 1)
@@ -720,6 +720,60 @@ def test_duplicate_multibind_implementation_raises_exeption():
     with pytest.raises(DuplicateImplementation):
         injector = Injector(configure)
         injector.get(int)
+
+def test_duplicate_multibind_provider_raises_exeption_02():
+    """It raises an DuplicateImplementation when a duplicate implementation is attempted."""
+    def configure(binder) -> None:
+       binder.multibind(list[int], [1,2,3])
+       binder.multibind(list[int], [1,2,3])
+
+    with pytest.raises(DuplicateImplementation):
+        injector = Injector(configure)
+        injector.get(list[int])
+
+# @pytest.mark.special
+def test_duplicate_multibind_on_custom_provider_raises_exeption():
+    """It raises an DuplicateImplementation when a duplicate implementation is attempted."""
+
+    from injector import Provider
+    from typing import TypeVar
+
+    T = TypeVar('T')
+
+    class Parameter:
+        pass
+
+
+    class ParametrizedInterface(list[T]):
+        """a.k.a ParameterizedInterface[Parameter]"""
+        def __call__(self, event: T) -> None:
+            raise NotImplementedError
+
+
+    class MyImplementation(ParametrizedInterface[Parameter]):
+        def __call__(self, param: T) -> None:
+            print(f"Param: {param}", param)
+
+
+    class MyProvider(Provider):
+        def __init__(self, cls: type[T]) -> None:
+            self._cls = cls
+
+        @property
+        def to_bind_to(self) -> type[T]:
+            return self._cls  # type: ignore
+
+        def get(self, _injector: Injector) -> list[type[T]]:
+            return [self._cls]  # type: ignore
+
+
+    def configure(binder) -> None:
+       binder.multibind(ParametrizedInterface[Parameter], MyProvider(MyImplementation))
+       binder.multibind(ParametrizedInterface[Parameter], MyProvider(MyImplementation))
+
+    with pytest.raises(DuplicateImplementation):
+        injector = Injector(configure)
+        injector.get(ParametrizedInterface[Parameter])
 ##
 
 def test_auto_bind():
